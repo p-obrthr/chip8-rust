@@ -7,7 +7,8 @@ const START_IND: usize = 0x200;
 
 pub struct Chip8 {
     memory: [u8; 0xFFF + 1],
-    vx: [u8; 0xF],
+    v: [u8; 0xF + 1],
+    i: u16,
     pc: usize, // original u16
     sp: u8,
     stack: [u16; 16],
@@ -22,7 +23,8 @@ impl Chip8 {
 
         Ok(Self {
             memory,
-            vx: [0; 0xF],
+            v: [0; 0xF + 1],
+            i: 0,
             pc: START_IND,
             sp: 0,
             stack: [0; 16],
@@ -58,7 +60,64 @@ impl Chip8 {
 
     fn instruct(&mut self, instruction: Instruction) -> Result<(), Box<dyn Error>> {
         match instruction {
-            Instruction(0x00E0) => Ok(()),
+            // cls
+            Instruction(0x00E0) => {
+                self.grid = [[false; 64]; 32];
+                Ok(())
+            }
+            // LD I, adr
+            Instruction(_) if instruction.get_first() == 0xA => {
+                self.i = instruction.get_nnn();
+                Ok(())
+            }
+            //DRW Vx, Vy, nibble
+            Instruction(_) if instruction.get_first() == 0xD => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+                let n = instruction.get_n() as usize;
+                let i = self.i as usize;
+
+                let start_x = self.v[x] as usize;
+                let start_y = self.v[y] as usize;
+
+                self.v[0xF] = 0;
+
+                for (row, byte) in self.memory[i..i + n].iter().enumerate() {
+                    for bit in (0..8).rev() {
+                        if (byte >> bit) & 1 == 1 {
+                            let px = (start_x + (7 - bit)) % 64;
+                            let py = (start_y + row) % 32;
+
+                            if self.grid[py][px] {
+                                self.v[0xF] = 1;
+                            }
+
+                            self.grid[py][px] ^= true;
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            // JP addr
+            Instruction(_) if instruction.get_first() == 0x1 => {
+                self.pc = instruction.get_nnn() as usize;
+                Ok(())
+            }
+            // LD Vx, byte
+            Instruction(_) if instruction.get_first() == 0x6 => {
+                let x = instruction.get_x() as usize;
+                self.v[x] = instruction.get_kk();
+                Ok(())
+            }
+            // ADD Vx, byte
+            Instruction(_) if instruction.get_first() == 0x7 => {
+                let x = instruction.get_x() as usize;
+                let result = (self.v[x] as u16 + instruction.get_kk() as u16) % 256;
+                self.v[x] = result as u8;
+
+                Ok(())
+            }
             _ => Err(format!("{:04X}: not implemented", instruction).into()),
         }
     }
