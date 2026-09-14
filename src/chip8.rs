@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 
 use crate::instruction::Instruction;
+use crate::io::*;
 
 const START_IND: usize = 0x200;
 
@@ -13,6 +14,7 @@ pub struct Chip8 {
     sp: u8,
     stack: [u16; 16],
     grid: [[bool; 64]; 32],
+    io: Box<dyn Io>,
 }
 
 impl Chip8 {
@@ -29,6 +31,7 @@ impl Chip8 {
             sp: 0,
             stack: [0; 16],
             grid: [[false; 64]; 32],
+            io: Box::new(RaylibIo::new()),
         })
     }
 
@@ -40,7 +43,15 @@ impl Chip8 {
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         while let Some(instruction) = self.fetch() {
+            if let Some(result) = self.io.check_update()
+                && result == Change::Exit
+            {
+                break;
+            }
+
             self.instruct(instruction)?;
+
+            self.io.render();
         }
         Ok(())
     }

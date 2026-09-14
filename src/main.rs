@@ -2,12 +2,11 @@
 #![allow(unused_imports)]
 
 use std::error::Error;
-use std::fmt;
-
-const START_IND: usize = 0x200;
 
 mod chip8;
 mod instruction;
+mod io;
+
 use crate::chip8::Chip8;
 
 fn main() -> Result<(), Box<dyn Error>> {
