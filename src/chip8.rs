@@ -51,7 +51,7 @@ impl Chip8 {
 
             self.instruct(instruction)?;
 
-            self.io.render();
+            self.io.render(self.grid);
         }
         Ok(())
     }
