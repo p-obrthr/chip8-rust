@@ -18,10 +18,14 @@ pub struct Chip8 {
 }
 
 impl Chip8 {
-    pub fn new(file_path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(rom_data: &[u8]) -> Result<Self, Box<dyn Error>> {
         let mut memory = [0; 0xFFF + 1];
-        let rom = fs::read(file_path)?;
-        memory[START_IND..START_IND + rom.len()].copy_from_slice(&rom);
+
+        if START_IND + rom_data.len() > memory.len() {
+            return Err("Err file to big".into());
+        }
+
+        memory[START_IND..START_IND + rom_data.len()].copy_from_slice(rom_data);
 
         Ok(Self {
             memory,
@@ -35,7 +39,7 @@ impl Chip8 {
         })
     }
 
-    fn print_rom_hex(&mut self) {
+    pub fn print_rom_hex(&mut self) {
         while let Some(instruction) = self.fetch() {
             println!("{:04X}", instruction);
         }

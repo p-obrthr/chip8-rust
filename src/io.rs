@@ -21,7 +21,7 @@ impl RaylibIo {
     pub fn new() -> Self {
         let (rl, thread) = raylib::init()
             .size(64 * SCALE, 32 * SCALE)
-            .title("Hello, World")
+            .title("Chip8 in Rust")
             .build();
 
         Self { rl, thread }
