@@ -32,14 +32,10 @@ jobs:
 
       - name: Prepare artifact
         run: |
-          mkdir artifact
-          ls -la
-          cp target/wasm32-unknown-emscripten/release/*.js ./artifact
-          ls -la target/wasm32-unknown-emscripten/release/
-          cp target/wasm32-unknown-emscripten/release/*.wasm ./artifact
-          ls -la target/wasm32-unknown-emscripten/release/
-          cp index.html ./artifact
-          ls -la ./artifact/
+          mkdir -p artifact/target/wasm32-unknown-emscripten/release/
+          cp target/wasm32-unknown-emscripten/release/*.js ./artifact/target/wasm32-unknown-emscripten/release/
+          cp target/wasm32-unknown-emscripten/release/*.wasm ./artifact/target/wasm32-unknown-emscripten/release/
+          cp index.html ./artifact/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
