@@ -9,11 +9,12 @@ const START_IND: usize = 0x200;
 pub struct Chip8 {
     memory: [u8; 0xFFF + 1],
     v: [u8; 0xF + 1],
-    i: u16,
+    i: u16,    // stack pointer
     pc: usize, // original u16
     sp: u8,
     stack: [u16; 16],
     grid: [[bool; 64]; 32],
+    dt: u8,
     io: Box<dyn Io>,
 }
 
@@ -35,6 +36,7 @@ impl Chip8 {
             sp: 0,
             stack: [0; 16],
             grid: [[false; 64]; 32],
+            dt: 0,
             io: Box::new(RaylibIo::new()),
         })
     }
@@ -61,14 +63,14 @@ impl Chip8 {
     }
 
     fn fetch(&mut self) -> Option<Instruction> {
+        if self.pc + 1 >= self.memory.len() {
+            return None;
+        }
+
         let byte_one = self.memory[self.pc];
         self.pc += 1;
         let byte_two = self.memory[self.pc];
         self.pc += 1;
-
-        if byte_one == 0 && byte_two == 0 {
-            return None;
-        }
 
         Some(Instruction::new(byte_one, byte_two))
     }
@@ -80,9 +82,23 @@ impl Chip8 {
                 self.grid = [[false; 64]; 32];
                 Ok(())
             }
+            // RET
+            Instruction(0x00EE) => {
+                self.sp -= 1;
+                self.pc = self.stack[self.sp as usize] as usize;
+                Ok(())
+            }
+            // SYS addr
+            Instruction(_) if instruction.get_first() == 0x0 => Ok(()),
             // LD I, adr
             Instruction(_) if instruction.get_first() == 0xA => {
                 self.i = instruction.get_nnn();
+                Ok(())
+            }
+            // JP V0, addr
+            Instruction(_) if instruction.get_first() == 0xB => {
+                let nnn = instruction.get_nnn() as usize;
+                self.pc = nnn + (self.v[0] as usize);
                 Ok(())
             }
             //DRW Vx, Vy, nibble
@@ -114,9 +130,82 @@ impl Chip8 {
 
                 Ok(())
             }
+            // ADD I, Vx
+            Instruction(_) if instruction.get_first() == 0xF && instruction.get_kk() == 0x1E => {
+                let x = instruction.get_x() as usize;
+                let result = self.i as u32 + self.v[x] as u32;
+                self.i = result as u16;
+                Ok(())
+            }
+            // LD Vx, [I]
+            Instruction(_) if instruction.get_first() == 0xF && instruction.get_kk() == 0x65 => {
+                let x = instruction.get_x();
+                for i in 0..(x + 1) {
+                    self.v[i as usize] = self.memory[self.i as usize + i as usize];
+                }
+                Ok(())
+            }
+            // BCD VX
+            Instruction(_) if instruction.get_first() == 0xF && instruction.get_kk() == 0x33 => {
+                let x = instruction.get_x() as usize;
+                let mut value = self.v[x];
+
+                self.memory[(self.i + 2) as usize] = value.rem_euclid(10);
+                value /= 10;
+
+                self.memory[(self.i + 1) as usize] = value.rem_euclid(10);
+                value /= 10;
+
+                self.memory[self.i as usize] = value.rem_euclid(10);
+
+                Ok(())
+            }
+            // LD Dt, Vx
+            Instruction(_) if instruction.get_first() == 0xF && instruction.get_n() == 0x5 => {
+                let x = instruction.get_x() as usize;
+
+                self.dt = self.v[x];
+
+                Ok(())
+            }
             // JP addr
             Instruction(_) if instruction.get_first() == 0x1 => {
                 self.pc = instruction.get_nnn() as usize;
+                Ok(())
+            }
+            // CALL addr
+            Instruction(_) if instruction.get_first() == 0x2 => {
+                self.stack[self.sp as usize] = self.pc as u16;
+                self.sp += 1;
+
+                let nnn = instruction.get_nnn() as usize;
+                self.pc = nnn;
+                Ok(())
+            }
+            // SE Vx, byte
+            Instruction(_) if instruction.get_first() == 0x3 => {
+                let x = instruction.get_x() as usize;
+                if self.v[x] == instruction.get_kk() {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
+            // SNE Vx, byte
+            Instruction(_) if instruction.get_first() == 0x4 => {
+                let x = instruction.get_x() as usize;
+                if self.v[x] != instruction.get_kk() {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
+            // SE Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x5 && instruction.get_n() == 0x0 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                if self.v[x] == self.v[y] {
+                    self.pc += 2;
+                }
                 Ok(())
             }
             // LD Vx, byte
@@ -130,6 +219,106 @@ impl Chip8 {
                 let x = instruction.get_x() as usize;
                 let result = (self.v[x] as u16 + instruction.get_kk() as u16) % 256;
                 self.v[x] = result as u8;
+
+                Ok(())
+            }
+            // LD Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x0 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[x] = self.v[y];
+
+                Ok(())
+            }
+            // OR Vx, Yy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x1 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[x] |= self.v[y];
+                Ok(())
+            }
+            // AND Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x2 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[x] &= self.v[y];
+                Ok(())
+            }
+            // XOR Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x3 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[x] ^= self.v[y];
+                Ok(())
+            }
+            // ADD Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x4 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                let sum = self.v[x] as u16 + self.v[y] as u16;
+
+                self.v[x] = (sum & 0xFF) as u8;
+                self.v[0xF] = if sum > 0xFF { 1 } else { 0 };
+
+                Ok(())
+            }
+            // SUB Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x5 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                let diff = self.v[x] as i16 - self.v[y] as i16;
+
+                self.v[x] = diff.rem_euclid(256) as u8;
+                self.v[0xF] = if diff >= 0 { 1 } else { 0 };
+
+                Ok(())
+            }
+            // SHR Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x6 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[0xF] = self.v[y] & 0x1;
+                self.v[x] >>= 1;
+
+                Ok(())
+            }
+            // SUBN Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0x7 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                let diff = self.v[y] as i16 - self.v[x] as i16;
+
+                self.v[x] = diff.rem_euclid(256) as u8;
+                self.v[0xF] = if diff >= 0 { 1 } else { 0 };
+
+                Ok(())
+            }
+            // SHL Vx, Vy
+            Instruction(_) if instruction.get_first() == 0x8 && instruction.get_n() == 0xE => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                self.v[0xF] = self.v[x] >> 7;
+                self.v[x] = self.v[y] << 1;
+
+                Ok(())
+            }
+            // SNE VX, VY
+            Instruction(_) if instruction.get_first() == 0x9 && instruction.get_n() == 0x0 => {
+                let x = instruction.get_x() as usize;
+                let y = instruction.get_y() as usize;
+
+                if self.v[x] != self.v[y] {
+                    self.pc += 2;
+                }
 
                 Ok(())
             }
